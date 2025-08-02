@@ -1,4 +1,4 @@
-package main
+package duckdb
 
 import (
 	"bytes"
@@ -62,7 +62,7 @@ func serializeRecord(record arrow.Record) (io.Reader, error) {
  * @param tableName string: The table name we want to write the sr to.
  * Returns void
  */
-func (r *DuckDBSQLRunner) importRecord(sr io.Reader) error {
+func (r *DuckDBSQLRunner) ImportRecord(sr io.Reader) error {
 	rdr, err := ipc.NewReader(sr)
 	if err != nil {
 		return fmt.Errorf("failed to create IPC reader: %w", err)
@@ -92,7 +92,7 @@ func (r *DuckDBSQLRunner) importRecord(sr io.Reader) error {
  * @param sql string: takes an SQL string
  * returns array of type arrow.Record
  */
-func (r *DuckDBSQLRunner) runSQL(sql string) ([]arrow.Record, error) {
+func (r *DuckDBSQLRunner) RunSQL(sql string) ([]arrow.Record, error) {
 	stmt, err := r.conn.NewStatement()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create new statement: %w", err)
@@ -130,10 +130,10 @@ func (r *DuckDBSQLRunner) RunSQLOnRecord(record arrow.Record, sql string) ([]arr
 	if err != nil {
 		return nil, fmt.Errorf("failed to serialize record: %w", err)
 	}
-	if err := r.importRecord(serializedRecord); err != nil {
+	if err := r.ImportRecord(serializedRecord); err != nil {
 		return nil, fmt.Errorf("failed to import record: %w", err)
 	}
-	result, err := r.runSQL(sql)
+	result, err := r.RunSQL(sql)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run SQL: %w", err)
 	}
@@ -144,6 +144,14 @@ func (r *DuckDBSQLRunner) RunSQLOnRecord(record arrow.Record, sql string) ([]arr
 			return nil, fmt.Errorf("failed to drop temp table after running query: %w", err)
 		}*/
 	return result, nil
+}
+
+func (db *DuckDBSQLRunner) PopulateDBwithsPlot() error {
+	_, err := db.RunSQL("SELECT * FROM read_parquet('third_party/dataset/sPlot_CWM_CWV.parquet')")
+	if err != nil {
+		panic(err)
+	}
+	return nil
 }
 
 /*
@@ -157,7 +165,7 @@ func (r *DuckDBSQLRunner) Close() {
 }
 
 func main() {
-	ctx := context.Background()
+	/*ctx := context.Background()
 	var db *DuckDBSQLRunner
 	db, err := NewDuckDBSQLRunner(ctx)
 	if err != nil {
@@ -165,6 +173,7 @@ func main() {
 	}
 	defer db.Close()
 	fmt.Println("DuckDBSQLRunner started")
+	*/
 	/*
 	 * If you want to import something from a .parquet file then run it in an SQL Query
 	 * SELECT * FROM read_parquet('input.parquet');
@@ -172,15 +181,17 @@ func main() {
 	 */
 
 	// let's try this...
-	result, err := db.runSQL("SELECT * FROM read_parquet('third_party/dataset/sPlot_CWM_CWV.parquet')")
-	if err != nil {
-		panic(err)
-	}
+	/*
+		result, err := db.runSQL("SELECT * FROM read_parquet('third_party/dataset/sPlot_CWM_CWV.parquet')")
+		if err != nil {
+			panic(err)
+		}
 
-	// Works like a charme
-	fmt.Println("Executed sql Query")
-	for _, record := range result {
-		fmt.Println(record)
-		record.Release()
-	}
+		// Works like a charme
+		fmt.Println("Executed sql Query")
+		for _, record := range result {
+			fmt.Println(record)
+			record.Release()
+		}
+	*/
 }
