@@ -1,4 +1,4 @@
-module duckdb
+module github.com/WhisperN/Go-Flight-Server/internal/duckdb
 
 go 1.24.5
 
