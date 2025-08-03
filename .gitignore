@@ -1,6 +1,7 @@
 # Shit files
 .idea
 .DS_Store
+.venv
 
 # Large scale dataset files
 data/3474_76_sPlotOpen_metadata(2).txt

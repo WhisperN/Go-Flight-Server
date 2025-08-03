@@ -1,31 +1,53 @@
-package src
+// server
+// https://arrow.apache.org/docs/format/Flight.html
+// See Notion notes...
+package main
 
 import (
-	"Go-Flight-Server/internal/duckdb"
-	"github.com/apache/arrow/go/v17/arrow/flight"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"context"
+	"fmt"
+	"github.com/WhisperN/Go-Flight-Server/internal/duckdb"
+	"github.com/WhisperN/Go-Flight-Server/client"
+	"github.com/apache/arrow/go/v18/arrow/flight"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"io"
+	"github.com/WhisperN/Go-Flight-Server/server"
 )
 
-type server struct {
-	flight.BaseFlightServer
-	s3Client *s3.Client
-	bucket   string
-}
-
-func NewServer() *server {
-	return &server{
-		s3Client: s3.New(s3.Options{Region: "eu-west"}),
-		bucket:   "sPlot-iDiv",
+func main() {
+	ctx := context.Background()
+	var db *duckdb.DuckDBSQLRunner
+	db, err := duckdb.NewDuckDBSQLRunner(ctx)
+	if err != nil {
+		panic(err)
 	}
-}
+	defer db.Close()
 
-func (s *server) ListActions(c *flight.Client, fs *flight.FlightService_ListFlightsServer) error {
-	return nil
-}
+	db.PopulateDBwithsPlot()
 
-func (s *server) DoGet(fs flight.FlightService_DoGetServer) error {
-	// Get the data form DuckDB
-	// ?Transform the data from DuckDB to parquet?
-	// Send back to client
-	return nil
+	var srv *server
+
+	client, err := flight.NewClientWithMiddleware(srv.Addr().String(), nil, nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		panic(err) // handle the error
+	}
+	defer client.Close()
+
+	infoStream, err := client.ListFlights(context.TODO(),
+		&flight.Criteria{Expression: []byte("2009")})
+	if err != nil {
+		panic(err) // handle the error
+	}
+
+	for {
+		info, err := infoStream.Recv()
+		if err != nil {
+			if err == io.EOF { // we hit the end of the stream
+				break
+			}
+			panic(err) // we got an error!
+		}
+		fmt.Println(info.GetFlightDescriptor().GetPath())
+	}
 }

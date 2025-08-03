@@ -1,10 +1,9 @@
 package server
 
 import (
-	"context"
-	"fmt"
 	"github.com/WhisperN/Go-Flight-Server/internal/duckdb"
-	"github.com/apache/arrow/go/v17/arrow/flight"
+	"github.com/apache/arrow-go/v18/arrow/ipc"
+	"github.com/apache/arrow-go/v18/arrow/flight"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -19,6 +18,7 @@ type server struct {
 	flight.BaseFlightServer
 	s3Client *s3.Client
 	bucket   string
+	db       *duckdb.DuckDBSQLRunner
 }
 
 func NewServer() *server {
@@ -54,11 +54,28 @@ func (s *server) GetFlightInfo() error {
 /*
  *
  */
-func (s *server) DoGet(fs flight.FlightService_DoGetServer) error {
+func (s *server) DoGet(ticket *flight.Ticket, stream flight.FlightService_DoGetServer) error {
+	// Get the schema of our DB
+	schema, err := s.db.GetSchema("sPlot")
 	// Get the data form DuckDB
+	data, err := s.db.RunSQL("SELECT * FROM sPlot")
+	if err != nil {
+		panic(err)
+	}
+	
+	writer := flight.NewRecordWriter(stream, ipc.WithSchema(schema))
+	if err != nil {
+		panic(err)
+	}
+	defer writer.Close()
 
-	// ?Transform the data from DuckDB to parquet?
 	// Send back to client
+	for _, rec := range data {
+		if err := writer.Write(rec); err != nil {
+			panic(err)
+		}
+	}
+
 	return nil
 }
 

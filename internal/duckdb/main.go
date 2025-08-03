@@ -9,9 +9,7 @@ import (
 	"github.com/apache/arrow-adbc/go/adbc"
 	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
 	"github.com/apache/arrow-go/v18/arrow"
-	//"github.com/apache/arrow-go/v18/arrow/array"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
-	//"github.com/apache/arrow-go/v18/arrow/memory"
 )
 
 const tableName string = "sPlot"
@@ -147,7 +145,7 @@ func (r *DuckDBSQLRunner) RunSQLOnRecord(record arrow.Record, sql string) ([]arr
 }
 
 func (db *DuckDBSQLRunner) PopulateDBwithsPlot() error {
-	_, err := db.RunSQL("SELECT * FROM read_parquet('third_party/dataset/sPlot_CWM_CWV.parquet')")
+	_, err := db.RunSQL("CREATE TABLE sPlot AS SELECT * FROM read_parquet('third_party/dataset/sPlot_CWM_CWV.parquet')")
 	if err != nil {
 		panic(err)
 	}
@@ -162,6 +160,28 @@ func (db *DuckDBSQLRunner) PopulateDBwithsPlot() error {
 func (r *DuckDBSQLRunner) Close() {
 	r.conn.Close()
 	r.db.Close()
+}
+
+func (r *DuckDBSQLRunner) GetSchema(table string) (*arrow.Schema, error) {
+	var sql = ("SELECT * FROM " + table + " LIMIT 1")
+
+	stmt, err := r.conn.NewStatement()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create new statement: %w", err)
+	}
+	defer stmt.Close()
+
+	if err := stmt.SetSqlQuery(sql); err != nil {
+		return nil, fmt.Errorf("failed to set SQL query: %w", err)
+	}
+	out, _, err := stmt.ExecuteQuery(r.ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer out.Release()
+
+	schema := out.Schema()
+	return schema, nil
 }
 
 func main() {
