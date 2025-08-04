@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/apache/arrow-go/v18/arrow/memory"
 	"io"
 
 	"github.com/apache/arrow-adbc/go/adbc"
@@ -182,6 +183,13 @@ func (r *DuckDBSQLRunner) GetSchema(table string) (*arrow.Schema, error) {
 
 	schema := out.Schema()
 	return schema, nil
+}
+
+func SchemaToBytes(schema *arrow.Schema) []byte {
+	var buf bytes.Buffer
+	writer := ipc.NewWriter(&buf, ipc.WithSchema(schema), ipc.WithAllocator(memory.NewGoAllocator()))
+	defer writer.Close()
+	return buf.Bytes()
 }
 
 func main() {

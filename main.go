@@ -1,41 +1,53 @@
-// server
-// https://arrow.apache.org/docs/format/Flight.html
-// See Notion notes...
+// Server
+// The main application of the server
+// If you are unfamiliar with gRPC, Arrow IPC and ADBC please
+// visit their documentation
+// gRPC: https://grpc.io/docs/languages/go/quickstart/
+// Apache Arrow Flight: https://arrow.apache.org/docs/format/Flight.html
+// IPC: https://arrow.apache.org/docs/python/ipc.html
+// ADBC: https://arrow.apache.org/docs/format/ADBC.html
+// Also if you have specific questions please read my own documentation for reference
 package main
 
 import (
 	"context"
-	"fmt"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"io"
+	"github.com/sirupsen/logrus"
+	"time"
 
 	OPTIONALS "github.com/WhisperN/Go-Flight-Server/components/Optionals"
 	"github.com/WhisperN/Go-Flight-Server/internal/duckdb"
 	"github.com/WhisperN/Go-Flight-Server/server"
-	//"github.com/WhisperN/go-Flight-Server/client"
-	flight2 "github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/common-nighthawk/go-figure"
+	"github.com/fatih/color"
 )
 
-func main() {
-	ctx := context.Background()
+func superSexyStart(ctx *context.Context) {
+	// Beautiful start title
+	banner := figure.NewFigure("Go-Flight-Server", "", true)
+	banner.Print()
 
+	// logger
+	log := logrus.New().WithTime(time.Now())
+
+	// coloring
+	color.Green(":: Starting application")
+	color.Yellow(":: Version 1.0.0 alpha")
+
+	// Initializing DuckDB
 	var db *duckdb.DuckDBSQLRunner
-	db, err := duckdb.NewDuckDBSQLRunner(ctx)
+	db, err := duckdb.NewDuckDBSQLRunner(*ctx)
 	if err != nil {
 		panic(err)
 	}
+	log.Info("DuckDB: DuckDBSQLRunner is started.")
 	defer db.Close()
 
 	db.PopulateDBwithsPlot()
-	fmt.Println("DuckDBSQLRunner is ready")
+	log.Info("DuckDB: Database is populated with data.")
+	color.Cyan(":: DuckDB: Finished")
 
-	defer db.Close()
-
+	// INITIALIZING THE SERVER
 	var srv *server.Server
-	// Because we work with optionals this would also work
-	// server.NewServer(&OPTIONALS.ADDRESS{IP: OPTIONALS.String("127.0.0.1")}, db)
-	fmt.Println("instantiating server")
 	srv, err = server.NewServer(&OPTIONALS.ADDRESS{
 		IP:   OPTIONALS.String("127.0.0.1"),
 		PORT: OPTIONALS.String("8080"),
@@ -43,32 +55,29 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Serving...")
+	log.Info("Server: New server instantiated")
 	err = srv.Serve()
+	log.Info("Server: Serving...")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("Server is ready")
-	defer srv.Shutdown()
-
-	client, err := flight2.NewClientWithMiddleware("127.0.0.1:8080", nil, nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		panic(err)
-	}
-
-	infoStream, err := client.ListFlights(context.TODO(),
-		&flight2.Criteria{Expression: []byte("2009")})
-	if err != nil {
-		panic(err)
-	}
-
-	for {
-		info, err := infoStream.Recv()
+	defer func(srv *server.Server) {
+		err := srv.Shutdown()
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
+
 		}
-		fmt.Println(info.GetFlightDescriptor().GetPath())
-	}
+	}(srv)
+	color.Cyan(":: Server: Finished")
+	color.Green(":: Application running")
+
+	color.White("Press Ctrl+C to quit.")
+	select {}
+}
+
+func main() {
+	// SET THE CONTEXT
+	ctx := context.Background()
+
+	//superFastStart(&ctx)
+	superSexyStart(&ctx)
 }

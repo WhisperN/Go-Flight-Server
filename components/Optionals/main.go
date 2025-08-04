@@ -9,10 +9,10 @@ type ADDRESS struct {
 
 func (a *ADDRESS) Check() bool {
 	if a.IP == nil {
-		*a.IP = "0.0.0.0"
+		return false
 	}
 	if a.PORT == nil {
-		*a.PORT = "8080"
+		return false
 	}
 	return true
 }
