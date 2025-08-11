@@ -20,7 +20,3 @@ func (a *ADDRESS) Check() bool {
 func String(input string) *string {
 	return &input
 }
-
-func main() {
-
-}

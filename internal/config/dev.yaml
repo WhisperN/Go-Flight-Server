@@ -1,0 +1,10 @@
+server:
+  port: "8080"
+  address: "127.0.0.1"
+
+duckdb:
+  driver: "duckdb"
+  entrypoint: "duckdb_adbc_init"
+  path: ":memory:"
+  source: "third_party/dataset/sPlot_CWM_CWV.parquet"
+  name: "sPlot"

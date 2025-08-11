@@ -3,20 +3,24 @@ package client
 import (
 	"context"
 	"fmt"
+	"github.com/WhisperN/Go-Flight-Server/internal/config"
 	"github.com/apache/arrow-go/v18/arrow/flight"
+	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"io"
 )
+
+var CONFIG = config.LoadConfig("../../config.yaml")
 
 type Client struct {
 }
 
 func (c *Client) NewClient(server_address string, err error) {}
 func main() {
-	client, err := flight.NewClientWithMiddleware("127.0.0.1:8080", nil, nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	client, err := flight.NewClientWithMiddleware(fmt.Sprintf("%s:%s", CONFIG.Server.Address, CONFIG.Server.Port), nil, nil, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		panic(err) // handle the error
+		logrus.Fatal(err)
 	}
 	defer client.Close()
 
@@ -34,7 +38,7 @@ func main() {
 			}
 			panic(err) // we got an error!
 		}
-		fmt.Println(info.GetFlightDescriptor().GetPath())
+		logrus.Info(info.GetFlightDescriptor().GetPath())
 	}
 
 	empty := flight.Empty{}
@@ -52,6 +56,6 @@ func main() {
 			}
 			panic(err)
 		}
-		fmt.Println(list.GetDescription())
+		logrus.Info(list.GetDescription())
 	}
 }

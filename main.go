@@ -11,15 +11,18 @@ package main
 
 import (
 	"context"
+	OPTIONALS "github.com/WhisperN/Go-Flight-Server/internal/components/Optionals"
+	"github.com/WhisperN/Go-Flight-Server/internal/config"
 	"github.com/sirupsen/logrus"
 	"time"
 
-	OPTIONALS "github.com/WhisperN/Go-Flight-Server/components/Optionals"
 	"github.com/WhisperN/Go-Flight-Server/internal/duckdb"
 	"github.com/WhisperN/Go-Flight-Server/server"
 	"github.com/common-nighthawk/go-figure"
 	"github.com/fatih/color"
 )
+
+var CONFIG = config.LoadConfig(true)
 
 func superSexyStart(ctx *context.Context) {
 	// Beautiful start title
@@ -34,23 +37,26 @@ func superSexyStart(ctx *context.Context) {
 	color.Yellow(":: Version 1.0.0 alpha")
 
 	// Initializing DuckDB
-	var db *duckdb.DuckDBSQLRunner
-	db, err := duckdb.NewDuckDBSQLRunner(*ctx)
+	var db *duckdb.SQLRunner
+	db, err := duckdb.NewSQLRunner(*ctx)
 	if err != nil {
 		panic(err)
 	}
 	log.Info("DuckDB: DuckDBSQLRunner is started.")
 	defer db.Close()
 
-	db.PopulateDBwithsPlot()
+	err = db.PopulateDB()
+	if err != nil {
+		log.Fatal(err)
+	}
 	log.Info("DuckDB: Database is populated with data.")
 	color.Cyan(":: DuckDB: Finished")
 
 	// INITIALIZING THE SERVER
 	var srv *server.Server
 	srv, err = server.NewServer(&OPTIONALS.ADDRESS{
-		IP:   OPTIONALS.String("127.0.0.1"),
-		PORT: OPTIONALS.String("8080"),
+		IP:   OPTIONALS.String(CONFIG.Server.Address),
+		PORT: OPTIONALS.String(CONFIG.Server.Port),
 	}, db)
 	if err != nil {
 		panic(err)

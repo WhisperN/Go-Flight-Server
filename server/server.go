@@ -6,15 +6,17 @@ package server
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
-	OPTIONALS "github.com/WhisperN/Go-Flight-Server/components/Optionals"
+	OPTIONALS "github.com/WhisperN/Go-Flight-Server/internal/components/Optionals"
+	"github.com/WhisperN/Go-Flight-Server/internal/config"
 	duckdb "github.com/WhisperN/Go-Flight-Server/internal/duckdb"
 	flight2 "github.com/apache/arrow-go/v18/arrow/flight"
 	ipc "github.com/apache/arrow-go/v18/arrow/ipc"
 	memory "github.com/apache/arrow-go/v18/arrow/memory"
 	"github.com/sirupsen/logrus"
 )
+
+var CONFIG = config.LoadConfig(true)
 
 /*
  * Conventions:
@@ -26,7 +28,7 @@ import (
 type Server struct {
 	flight2.BaseFlightServer
 	server *flight2.Server
-	db     *duckdb.DuckDBSQLRunner
+	db     *duckdb.SQLRunner
 }
 
 // ------------------------------------------------------------------------------------------
@@ -54,22 +56,19 @@ func (s *Server) mustEmbedUnimplementedFlightServiceServer() {
  * @param bucket_name string: define the dataset that we want to connect to ("sPlot-iDiv")
  * returns -> &Server
  */
-func NewServer(address *OPTIONALS.ADDRESS, db *duckdb.DuckDBSQLRunner) (*Server, error) {
+func NewServer(address *OPTIONALS.ADDRESS, db *duckdb.SQLRunner) (*Server, error) {
 	if db == nil {
-		return nil, errors.New("db is nil: Please make sure to give a database Object")
+		logrus.Fatal("db is nil: Please make sure to give a database Object")
 	}
 	// We use Middleware because of potential Authentication layers
 	var srv = flight2.NewServerWithMiddleware(nil)
 	if address != nil && address.Check() {
 		err := srv.Init(*address.IP + ":" + *address.PORT)
 		if err != nil {
-			panic("Could not initialize server")
+			logrus.Fatal("Could not start server. Please provide a valid IP address or port")
 		}
 	} else {
-		err := srv.Init("127.0.0.1:8080")
-		if err != nil {
-			panic("Could not initialize server")
-		}
+		logrus.Fatal("Could not start server. Please provide a valid IP address or port")
 	}
 
 	srvLocalImpl := &Server{
@@ -89,21 +88,15 @@ func NewServer(address *OPTIONALS.ADDRESS, db *duckdb.DuckDBSQLRunner) (*Server,
 func (s *Server) ListActions(empty *flight2.Empty, actionsServer flight2.FlightService_ListActionsServer) error {
 	supportedActions := []*flight2.ActionType{
 		{
-			Type:        "reload",
-			Description: "Reload the DuckDB tables from disk",
-		},
-		{
-			Type:        "shutdown",
-			Description: "Gracefully shutdown the Flight server",
+			Type:        "DoGet",
+			Description: "Get the current dataset",
 		},
 	}
-
 	for _, action := range supportedActions {
 		if err := actionsServer.Send(action); err != nil {
-			return fmt.Errorf("failed to send action %s: %w", action.Type, err)
+			logrus.Info("failed to send action %s: %w", action.Type, err)
 		}
 	}
-
 	return nil
 }
 
@@ -134,7 +127,7 @@ func (s *Server) Handshake(handshakeServer flight2.FlightService_HandshakeServer
 		return err
 	}
 
-	fmt.Printf("Received Handshake request: Payload=%s", string(req.Payload))
+	logrus.Info("Received Handshake request: Payload=%s", string(req.Payload))
 
 	return handshakeServer.Send(&flight2.HandshakeResponse{
 		Payload: []byte("ok"),
@@ -148,40 +141,37 @@ func (s *Server) Handshake(handshakeServer flight2.FlightService_HandshakeServer
 // TODO: CLEAN UP
 func (s *Server) ListFlights(criteria *flight2.Criteria, flightsServer flight2.FlightService_ListFlightsServer) error {
 	if criteria != nil && len(criteria.Expression) > 0 {
-		logrus.Info("Received ListFlights criteria: %s\n", string(criteria.Expression))
+		logrus.Info("ListFlights: Received ListFlights criteria: %s\n", string(criteria.Expression))
 	} else {
-		logrus.Info("No criteria specified, returning default flights")
+		logrus.Info("ListFlights: No criteria specified, returning default flights")
 	}
+	logrus.Info("ListFlights: called")
 
-	logrus.Info("Building the descriptor")
 	descriptor := &flight2.FlightDescriptor{
-		Path: []string{"sPlot"},
+		Path: []string{CONFIG.DuckDB.TableName},
 	}
 
-	logrus.Info("Collecting the schema")
-	_, err := s.db.GetSchema("sPlot")
+	_, err := s.db.GetSchema(CONFIG.DuckDB.TableName)
 	if err != nil {
-		logrus.Errorf("Could not get schema for sPlot path %s: %v", descriptor.Path, err)
+		logrus.Errorf("ListFlights: Could not get schema for %s path %s: %v", CONFIG.DuckDB.TableName, descriptor.Path, err)
 	}
 
-	logrus.Info("Building the response flight info")
 	flightInfo := &flight2.FlightInfo{
 		Schema:           make([]byte, 0),
 		FlightDescriptor: descriptor,
 		Endpoint: []*flight2.FlightEndpoint{
 			{
-				Ticket: &flight2.Ticket{Ticket: []byte("sPlot")},
+				Ticket: &flight2.Ticket{Ticket: []byte(CONFIG.DuckDB.TableName)},
 			},
 		},
 		TotalRecords: -1,
 		TotalBytes:   -1,
 	}
 
-	logrus.Info("Sending...")
 	if err := flightsServer.Send(flightInfo); err != nil {
-		logrus.Errorf("Failed to send flight info: %v", err)
+		logrus.Error("ListFlights: Failed to send flight info: %v", err)
 	}
-	logrus.Info("End of function")
+	logrus.Info("ListFlights: End of function")
 	return nil
 }
 
@@ -191,7 +181,8 @@ func (s *Server) ListFlights(criteria *flight2.Criteria, flightsServer flight2.F
  */
 func (s *Server) GetSchema(ctx context.Context, descriptor *flight2.FlightDescriptor) (*flight2.SchemaResult, error) {
 	if descriptor == nil || len(descriptor.Path) == 0 {
-		return nil, errors.New("missing descriptor or path")
+		logrus.Errorf("missing descriptor or path")
+		return nil, nil
 	}
 	tableName := descriptor.Path[0]
 	schema, err := s.db.GetSchema(tableName)
@@ -204,7 +195,7 @@ func (s *Server) GetSchema(ctx context.Context, descriptor *flight2.FlightDescri
 	writer := ipc.NewWriter(&buf, ipc.WithSchema(schema), ipc.WithAllocator(mem))
 
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close IPC writer: %w", err)
+		logrus.Errorf("failed to close IPC writer: %w", err)
 	}
 
 	return &flight2.SchemaResult{
@@ -218,16 +209,17 @@ func (s *Server) GetSchema(ctx context.Context, descriptor *flight2.FlightDescri
  */
 func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGetServer) error {
 	if ticket == nil {
-		panic("nil flight ticket")
+		logrus.Error("ticket is nil")
+		return nil
 	}
+	logrus.Info("DoGet: called")
 	// Get the schema of our DB
-	schema, err := s.db.GetSchema("sPlot")
+	schema, err := s.db.GetSchema(CONFIG.DuckDB.TableName)
 	// Get the data form DuckDB
-	data, err := s.db.RunSQL("SELECT * FROM sPlot")
+	data, err := s.db.RunSQL(fmt.Sprintf("SELECT * FROM %s", CONFIG.DuckDB.TableName))
 	if err != nil {
 		panic(err)
 	}
-
 	writer := flight2.NewRecordWriter(stream, ipc.WithSchema(schema))
 	defer func(writer *flight2.Writer) {
 		err := writer.Close()
@@ -242,7 +234,7 @@ func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGe
 			panic(err)
 		}
 	}
-
+	logrus.Info("DoGet: End of function")
 	return nil
 }
 
@@ -251,7 +243,7 @@ func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGe
  */
 func (s *Server) DoPut(fs flight2.FlightService_DoPutServer) error {
 	if fs == nil {
-		panic("nil flight server")
+		logrus.Info("nil flight server")
 	}
 	return nil
 }

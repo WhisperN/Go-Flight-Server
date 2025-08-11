@@ -4,8 +4,8 @@
 .venv
 
 # Large scale dataset files
-data/3474_76_sPlotOpen_metadata(2).txt
-data/3474_76_sPlotOpen_Metadata_dataset_3474(5).txt
-data/3474_76_sPlotOpen_header(3).txt
-data/3474_76_sPlotOpen_DT(2).txt
-data/3474_76_sPlotOpen_CWM_CWV(2).txt
+internal/data/3474_76_sPlotOpen_metadata(2).txt
+internal/data/3474_76_sPlotOpen_Metadata_dataset_3474(5).txt
+internal/data/3474_76_sPlotOpen_header(3).txt
+internal/data/3474_76_sPlotOpen_DT(2).txt
+internal/data/3474_76_sPlotOpen_CWM_CWV(2).txt
