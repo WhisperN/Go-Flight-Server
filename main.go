@@ -11,8 +11,7 @@ package main
 
 import (
 	"context"
-	OPTIONALS "github.com/WhisperN/Go-Flight-Server/internal/components/Optionals"
-	"github.com/WhisperN/Go-Flight-Server/internal/config"
+	"github.com/WhisperN/Go-Flight-Server/internal/components/config"
 	"github.com/sirupsen/logrus"
 	"time"
 
@@ -54,10 +53,7 @@ func superSexyStart(ctx *context.Context) {
 
 	// INITIALIZING THE SERVER
 	var srv *server.Server
-	srv, err = server.NewServer(&OPTIONALS.ADDRESS{
-		IP:   OPTIONALS.String(CONFIG.Server.Address),
-		PORT: OPTIONALS.String(CONFIG.Server.Port),
-	}, db)
+	srv, err = server.NewServer(db)
 	if err != nil {
 		panic(err)
 	}

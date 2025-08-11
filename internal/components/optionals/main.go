@@ -1,4 +1,4 @@
-package Optionals
+package optionals
 
 // This file contains only optionals
 

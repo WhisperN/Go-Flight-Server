@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
-	"github.com/WhisperN/Go-Flight-Server/internal/config"
+	"github.com/WhisperN/Go-Flight-Server/internal/components/config"
 	"github.com/apache/arrow-go/v18/arrow/flight"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -11,7 +11,7 @@ import (
 	"io"
 )
 
-var CONFIG = config.LoadConfig("../../config.yaml")
+var CONFIG = config.LoadConfig(true)
 
 type Client struct {
 }

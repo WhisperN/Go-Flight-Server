@@ -1,9 +1,12 @@
+// Author: WhisperN
+// Developed at University of Zürich
+
 package duckdb
 
 import (
 	"context"
 	"fmt"
-	"github.com/WhisperN/Go-Flight-Server/internal/config"
+	"github.com/WhisperN/Go-Flight-Server/internal/components/config"
 	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
 	"github.com/sirupsen/logrus"
 	"io"

@@ -7,8 +7,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	OPTIONALS "github.com/WhisperN/Go-Flight-Server/internal/components/Optionals"
-	"github.com/WhisperN/Go-Flight-Server/internal/config"
+	"github.com/WhisperN/Go-Flight-Server/internal/components/config"
 	duckdb "github.com/WhisperN/Go-Flight-Server/internal/duckdb"
 	flight2 "github.com/apache/arrow-go/v18/arrow/flight"
 	ipc "github.com/apache/arrow-go/v18/arrow/ipc"
@@ -27,8 +26,53 @@ var CONFIG = config.LoadConfig(true)
 
 type Server struct {
 	flight2.BaseFlightServer
-	server *flight2.Server
-	db     *duckdb.SQLRunner
+	server      *flight2.Server
+	db          *duckdb.SQLRunner
+	authHandler flight2.ServerAuthHandler
+	ctx         context.Context
+}
+
+func newFlightTicket() *flight2.Ticket {
+	return &flight2.Ticket{
+		Ticket: []byte(CONFIG.DuckDB.TableName),
+	}
+}
+func newFlightDescriptor() *flight2.FlightDescriptor {
+	return &flight2.FlightDescriptor{
+		Path: []string{CONFIG.DuckDB.TableName},
+	}
+}
+
+func newFlightEndpoint() []*flight2.FlightEndpoint {
+	out := []*flight2.FlightEndpoint{
+		{
+			Ticket: newFlightTicket(),
+		},
+	}
+	return out
+}
+
+func newActionType() []*flight2.ActionType {
+	supportedActions := []*flight2.ActionType{
+		{
+			Type:        "DoGet",
+			Description: "Get the current dataset",
+		},
+	}
+	return supportedActions
+}
+
+func (s *Server) NewFlightInfo() *flight2.FlightInfo {
+	scm, err := s.GetSchema(s.ctx, newFlightDescriptor())
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	out := &flight2.FlightInfo{
+		Schema:           scm.Schema,
+		FlightDescriptor: newFlightDescriptor(),
+		Endpoint:         newFlightEndpoint(),
+	}
+	return out
 }
 
 // ------------------------------------------------------------------------------------------
@@ -52,80 +96,43 @@ func (s *Server) mustEmbedUnimplementedFlightServiceServer() {
 // My implemented functions
 
 // NewServer
-/* @param region string: Timezone something like: "eu-west-1"
- * @param bucket_name string: define the dataset that we want to connect to ("sPlot-iDiv")
- * returns -> &Server
+/* Creates new Arrow Flight Server in Go
+ * @param db *duckdb.SQLRunner: The instance of a duckdb
+ * @return *Server
  */
-func NewServer(address *OPTIONALS.ADDRESS, db *duckdb.SQLRunner) (*Server, error) {
+func NewServer(db *duckdb.SQLRunner) (*Server, error) {
 	if db == nil {
 		logrus.Fatal("db is nil: Please make sure to give a database Object")
 	}
 	// We use Middleware because of potential Authentication layers
-	var srv = flight2.NewServerWithMiddleware(nil)
-	if address != nil && address.Check() {
-		err := srv.Init(*address.IP + ":" + *address.PORT)
-		if err != nil {
-			logrus.Fatal("Could not start server. Please provide a valid IP address or port")
-		}
-	} else {
+	var srvFlight = flight2.NewServerWithMiddleware(nil)
+	err := srvFlight.Init(CONFIG.Server.Address + ":" + CONFIG.Server.Port)
+	if err != nil {
 		logrus.Fatal("Could not start server. Please provide a valid IP address or port")
 	}
 
-	srvLocalImpl := &Server{
-		server: &srv,
+	srv := &Server{
+		server: &srvFlight,
 		db:     db,
+		ctx:    context.Background(),
 	}
 
-	srv.RegisterFlightService(srvLocalImpl)
-	return srvLocalImpl, nil
-}
-
-// ListActions method
-/* @param c *flight.Client: The client that sent the request
- * @param fs *flight.FlightService_ListFlightsServer: Calling the request
- */
-// TODO: CLEAN UP
-func (s *Server) ListActions(empty *flight2.Empty, actionsServer flight2.FlightService_ListActionsServer) error {
-	supportedActions := []*flight2.ActionType{
-		{
-			Type:        "DoGet",
-			Description: "Get the current dataset",
-		},
-	}
-	for _, action := range supportedActions {
-		if err := actionsServer.Send(action); err != nil {
-			logrus.Info("failed to send action %s: %w", action.Type, err)
-		}
-	}
-	return nil
-}
-
-// GetFlightInfo
-/*
- * This is for the server to tell you where the data is located.
- * Endpoints contains a list of locations where this data is located.
- * The Ticked is binary data that the server needs to request a data.
- * If the server wishes to indicate that the data is on the local server
- * and not a different location, then it can return an empty list of locations.
- * The client can then reuse the existing connection to the original
- * server to fetch data. Otherwise, the client must connect to one of the
- * indicated locations.
- * @param FlightDescriptor:
- * returns {endpoints: [FlightEndpoint{ticket: Ticket}]}
- */
-func (s *Server) GetFlightInfo(context.Context, *flight2.FlightDescriptor) (*flight2.FlightInfo, error) {
-	return nil, nil
+	srvFlight.RegisterFlightService(srv)
+	return srv, nil
 }
 
 // Handshake
-/*
- *
- */
+// TODO: Implement at later stage
 func (s *Server) Handshake(handshakeServer flight2.FlightService_HandshakeServer) error {
 	req, err := handshakeServer.Recv()
 	if err != nil {
 		return err
 	}
+	if s.authHandler == nil {
+		return nil
+	}
+
+	// return s.authHandler.Authenticate(&serverAuthConn{handshakeServer})
 
 	logrus.Info("Received Handshake request: Payload=%s", string(req.Payload))
 
@@ -134,57 +141,68 @@ func (s *Server) Handshake(handshakeServer flight2.FlightService_HandshakeServer
 	})
 }
 
-// ListFlights
-/*
- *
+// ListActions
+/* Lists available actions
+ * @param empty *flight.Empty: An input of type Empty
+ * @param actionServer *flight.FlightService_ListFlightsServer: Calling the request
  */
-// TODO: CLEAN UP
-func (s *Server) ListFlights(criteria *flight2.Criteria, flightsServer flight2.FlightService_ListFlightsServer) error {
-	if criteria != nil && len(criteria.Expression) > 0 {
-		logrus.Info("ListFlights: Received ListFlights criteria: %s\n", string(criteria.Expression))
-	} else {
-		logrus.Info("ListFlights: No criteria specified, returning default flights")
+func (s *Server) ListActions(empty *flight2.Empty, actionsServer flight2.FlightService_ListActionsServer) error {
+	supportedActions := newActionType()
+	for _, action := range supportedActions {
+		if err := actionsServer.Send(action); err != nil {
+			logrus.Info("failed to send action %s: %w", action.Type, err)
+		}
 	}
+	return nil
+}
+
+// ListFlights
+/* Sends back a list of endpoints with corresponding tickets
+ * @param criteria *flight2.Criteria
+ * @param fs flight2.FlightService_ListFlightsServer
+ */
+func (s *Server) ListFlights(criteria *flight2.Criteria, fs flight2.FlightService_ListFlightsServer) error {
 	logrus.Info("ListFlights: called")
 
-	descriptor := &flight2.FlightDescriptor{
-		Path: []string{CONFIG.DuckDB.TableName},
-	}
+	flightInfo := s.NewFlightInfo()
 
-	_, err := s.db.GetSchema(CONFIG.DuckDB.TableName)
-	if err != nil {
-		logrus.Errorf("ListFlights: Could not get schema for %s path %s: %v", CONFIG.DuckDB.TableName, descriptor.Path, err)
-	}
-
-	flightInfo := &flight2.FlightInfo{
-		Schema:           make([]byte, 0),
-		FlightDescriptor: descriptor,
-		Endpoint: []*flight2.FlightEndpoint{
-			{
-				Ticket: &flight2.Ticket{Ticket: []byte(CONFIG.DuckDB.TableName)},
-			},
-		},
-		TotalRecords: -1,
-		TotalBytes:   -1,
-	}
-
-	if err := flightsServer.Send(flightInfo); err != nil {
-		logrus.Error("ListFlights: Failed to send flight info: %v", err)
+	if err := fs.Send(flightInfo); err != nil {
+		logrus.Errorf("ListFlights: Failed to send flight info: %v", err)
 	}
 	logrus.Info("ListFlights: End of function")
 	return nil
 }
 
-// GetSchema
-/*
- *
+// GetFlightInfo
+/* This is for the server to tell you where the data is located.
+ * Endpoints contains a list of locations where this data is located.
+ * The Ticked is binary data that the server needs to request a data.
+ * If the server wishes to indicate that the data is on the local server
+ * and not a different location, then it can return an empty list of locations.
+ * The client can then reuse the existing connection to the original
+ * server to fetch data. Otherwise, the client must connect to one of the
+ * indicated locations.
+ * @param fd *flight2.FlightDescriptor
+ * @return *flight2.FlightInfo
  */
-func (s *Server) GetSchema(ctx context.Context, descriptor *flight2.FlightDescriptor) (*flight2.SchemaResult, error) {
-	if descriptor == nil || len(descriptor.Path) == 0 {
+func (s *Server) GetFlightInfo(ctx context.Context, fd *flight2.FlightDescriptor) (*flight2.FlightInfo, error) {
+	flightInfo := s.NewFlightInfo()
+
+	return flightInfo, nil
+}
+
+// GetSchema
+/* gets the schema of the database table
+ * @param ctx context.Context
+ * @param fd *flight2.FlightDescriptor
+ * @return *flight2.SchemaResult
+ */
+func (s *Server) GetSchema(ctx context.Context, fd *flight2.FlightDescriptor) (*flight2.SchemaResult, error) {
+	if fd == nil || len(fd.Path) == 0 {
 		logrus.Errorf("missing descriptor or path")
 		return nil, nil
 	}
-	tableName := descriptor.Path[0]
+	tableName := fd.Path[0]
 	schema, err := s.db.GetSchema(tableName)
 	if err != nil {
 		return nil, err
@@ -204,7 +222,8 @@ func (s *Server) GetSchema(ctx context.Context, descriptor *flight2.FlightDescri
 }
 
 // DoGet
-/* @param ticket *flight.Ticket: The service the client requests in bytes
+/* Gets entry from a database with corresponding ticket (table name)
+ * @param ticket *flight.Ticket: The service the client requests in bytes
  * @param stream flight.FlightService_DoGetServer: Dong the call to the flight server
  */
 func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGetServer) error {
@@ -239,7 +258,8 @@ func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGe
 }
 
 // DoPut method
-/* @param fs flight.FlightService_DoPutServer
+/* If we want to upload some data...
+ * @param fs flight.FlightService_DoPutServer
  */
 func (s *Server) DoPut(fs flight2.FlightService_DoPutServer) error {
 	if fs == nil {
@@ -249,22 +269,17 @@ func (s *Server) DoPut(fs flight2.FlightService_DoPutServer) error {
 }
 
 // PollFlightInfo method
-/* - flight_descriptor
- * - info
- * - progress element of [0.0, 1.0]
- * - timestamp
- * @param FlightDescriptor
- * returns PollInfo{descriptor: FlightDescriptor, ...}
+/*
+ * @param ctx context.Context
+ * @param desc *flight2.FlightDescriptor
+ * @return *flight2.PollInfo
  */
 func (s *Server) PollFlightInfo(ctx context.Context, desc *flight2.FlightDescriptor) (*flight2.PollInfo, error) {
 	return nil, nil
 }
 
-// CancelFlightInfo TODO: Is it necessary?
-func (s *Server) CancelFlightInfo() error {
-	return nil
-}
-
+// Serve
+// starts the server
 func (s *Server) Serve() error {
 	srv := *s.server
 	go func() {
@@ -276,9 +291,15 @@ func (s *Server) Serve() error {
 	return nil
 }
 
+// Shutdown
+// Stops the server and closes all records
 func (s *Server) Shutdown() error {
 	srv := *s.server
 	srv.Shutdown()
 	s.db.Close()
 	return nil
 }
+
+// TODO:
+// - CancelFlightInfoRequest
+// - Handshake
