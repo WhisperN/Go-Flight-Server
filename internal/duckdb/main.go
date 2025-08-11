@@ -1,15 +1,14 @@
 package duckdb
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/WhisperN/Go-Flight-Server/internal/config"
+	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
 	"github.com/sirupsen/logrus"
 	"io"
 
 	"github.com/apache/arrow-adbc/go/adbc"
-	"github.com/apache/arrow-adbc/go/adbc/drivermgr"
 	"github.com/apache/arrow-go/v18/arrow"
 	"github.com/apache/arrow-go/v18/arrow/ipc"
 )
@@ -22,6 +21,11 @@ type SQLRunner struct {
 	db   adbc.Database
 }
 
+// NewSQLRunner
+/* Instantiates new SQL Database
+ * @param ctx context.Context
+ * @return *SQLRunner
+ */
 func NewSQLRunner(ctx context.Context) (*SQLRunner, error) {
 	var drv drivermgr.Driver
 	db, err := drv.NewDatabase(map[string]string{
@@ -41,25 +45,7 @@ func NewSQLRunner(ctx context.Context) (*SQLRunner, error) {
 	return &SQLRunner{ctx: ctx, conn: conn, db: db}, err
 }
 
-/*
- * Record serializer
- * Returns buffer io.Reader and error
- */
-func serializeRecord(record arrow.Record) (io.Reader, error) {
-	// Allocates new dynamic memory
-	buf := new(bytes.Buffer)
-	wr := ipc.NewWriter(buf, ipc.WithSchema(record.Schema()))
-	if err := wr.Write(record); err != nil {
-		logrus.Error("failed to write record: ", err)
-		return nil, nil
-	}
-	if err := wr.Close(); err != nil {
-		logrus.Error("failed to close writer: ", err)
-		return nil, nil
-	}
-	return buf, nil
-}
-
+// ImportRecord
 /*
  * Record importer
  * @param sr io.Reader: Native object in Go for Buffer that data gets written to
@@ -97,8 +83,8 @@ func (r *SQLRunner) ImportRecord(sr io.Reader) error {
 	return stmt.Close()
 }
 
-/*
- * Runs an SQL command on top of a database
+// RunSQL
+/* Runs an SQL command on top of a database
  * @param sql string: takes an SQL string
  * returns array of type arrow.Record
  */
@@ -139,30 +125,9 @@ func (r *SQLRunner) RunSQL(sql string) ([]arrow.Record, error) {
 	return result, nil
 }
 
-/*
- * Runs SQL on a Table of the database
- * @param record arrow.Record: Something that is currently in the Database
- * @param sql string: The SQL query we want to run on the entry
- */
-func (r *SQLRunner) RunSQLOnRecord(record arrow.Record, sql string) ([]arrow.Record, error) {
-	serializedRecord, err := serializeRecord(record)
-	if err != nil {
-		logrus.Error("failed to serialize record: ", err)
-		return nil, err
-	}
-	if err := r.ImportRecord(serializedRecord); err != nil {
-		logrus.Error("failed to import record: ", err)
-		return nil, err
-	}
-	result, err := r.RunSQL(sql)
-	if err != nil {
-		logrus.Error("failed to run SQL: ", err)
-		return nil, err
-	}
-
-	return result, nil
-}
-
+// PopulateDB
+// Populates the DB with a parquet (column format) file
+//
 //goland:noinspection ALL
 func (r *SQLRunner) PopulateDB() error {
 	_, err := r.RunSQL(
@@ -176,22 +141,11 @@ func (r *SQLRunner) PopulateDB() error {
 	return nil
 }
 
-/*
- * For winning the beauty contest...
- * "Your boy is always crispy clean"
- * ~Money Boy
- */
-func (r *SQLRunner) Close() {
-	err := r.conn.Close()
-	if err != nil {
-		logrus.Error("failed to close connection: ", err)
-	}
-	err = r.db.Close()
-}
-
 // GetSchema
 /* retrieves the current schema of the Dataset in use
  * by only selecting the first column
+ * @param table string
+ * @return *arrow.Schema
  */
 //goland:noinspection SqlNoDataSourceInspection
 func (r *SQLRunner) GetSchema(table string) (*arrow.Schema, error) {
@@ -226,4 +180,17 @@ func (r *SQLRunner) GetSchema(table string) (*arrow.Schema, error) {
 
 	schema := out.Schema()
 	return schema, nil
+}
+
+// Close
+/* For winning the beauty contest...
+ * "Your boy is always crispy clean"
+ * ~Money Boy
+ */
+func (r *SQLRunner) Close() {
+	err := r.conn.Close()
+	if err != nil {
+		logrus.Error("failed to close connection: ", err)
+	}
+	err = r.db.Close()
 }

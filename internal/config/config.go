@@ -27,7 +27,8 @@ type Config struct {
 func LoadConfig(dev bool) *Config {
 	y, err := os.Open("config.yaml")
 	if err != nil {
-		panic("Error loading config.yaml")
+		logrus.Fatal(err)
+		return nil
 	}
 	defer func(y *os.File) {
 		err := y.Close()
@@ -35,11 +36,11 @@ func LoadConfig(dev bool) *Config {
 			panic(err)
 		}
 	}(y)
-	logrus.Infof("Loaded config.yaml")
 	var cfg Config
 	err = yaml.NewDecoder(y).Decode(&cfg)
 	if err != nil {
-		panic(err)
+		logrus.Fatal(err)
+		return nil
 	}
 	return &cfg
 }
