@@ -9,3 +9,7 @@ internal/data/3474_76_sPlotOpen_Metadata_dataset_3474(5).txt
 internal/data/3474_76_sPlotOpen_header(3).txt
 internal/data/3474_76_sPlotOpen_DT(2).txt
 internal/data/3474_76_sPlotOpen_CWM_CWV(2).txt
+
+# Ignore TLS certificates
+proxy/tls/localhost+2-key.pem
+proxy/tls/localhost+2.pem

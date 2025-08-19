@@ -6,5 +6,5 @@ duckdb:
   driver: "duckdb"
   entrypoint: "duckdb_adbc_init"
   path: ":memory:"
-  source: "third_party/dataset/sPlot_CWM_CWV.parquet"
+  source: "third_party/dataset/test.parquet"
   name: "sPlot"

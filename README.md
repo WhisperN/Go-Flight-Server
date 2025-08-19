@@ -2,6 +2,9 @@
 This Project is an implementation of the Apache Arrow
 Flight server that sends IPC streams on the gRPC format.
 
+## Compatibility
+This project does not work for 
+
 ## General principle
 This server has the purpose to send responses on request from a
 browser. That is why there is a **proxy** included in this
@@ -22,6 +25,17 @@ you can jump directly into the start section
 Download the corresponding libduckdb library from [here](https://github.com/duckdb/duckdb/releases)
 ## Dataset
 Download the sPlot library from [here]()
+
+## Proxy
+Because we want to need h2 as a main protocol for fast sending.
+install:
+- envoy
+- mkcert
+```bash
+brew install mkcert nss
+```
+
+
 
 # Start
 ## Server
