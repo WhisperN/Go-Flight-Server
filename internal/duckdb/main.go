@@ -48,14 +48,14 @@ func NewSQLRunner(ctx context.Context) (*SQLRunner, error) {
 	return &SQLRunner{ctx: ctx, conn: conn, db: db}, err
 }
 
-// ImportRecord
+// ImportRecords
 /*
  * Record importer
  * @param sr io.Reader: Native object in Go for Buffer that data gets written to
  * @param tableName string: The table name we want to write the sr to.
  * Returns void
  */
-func (r *SQLRunner) ImportRecord(sr io.Reader) error {
+func (r *SQLRunner) ImportRecords(sr io.Reader) error {
 	rdr, err := ipc.NewReader(sr)
 	if err != nil {
 		logrus.Error("failed to create IPC reader: ", err)
@@ -71,9 +71,12 @@ func (r *SQLRunner) ImportRecord(sr io.Reader) error {
 		logrus.Error("failed to set ingest mode: ", err)
 		return err
 	}
-	if err := stmt.SetOption(adbc.OptionKeyIngestTargetTable, CONFIG.DuckDB.TableName); err != nil {
+	if err := stmt.SetOption(adbc.OptionKeyIngestTargetTable, CONFIG.DuckDB.MockTable); err != nil {
 		logrus.Error("failed to set ingest target table: ", err)
 		return err
+	}
+	if err := stmt.SetOption(adbc.OptionKeyIngestTargetTable, CONFIG.DuckDB.LocationTable); err != nil {
+		logrus.Error("failed to set ingest target table: ", err)
 	}
 	if err := stmt.BindStream(r.ctx, rdr); err != nil {
 		logrus.Error("failed to bind stream: ", err)
@@ -133,13 +136,19 @@ func (r *SQLRunner) RunSQL(sql string) ([]arrow.Record, error) {
 //
 //goland:noinspection ALL
 func (r *SQLRunner) PopulateDB() error {
-	_, err := r.RunSQL(
-		fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM read_parquet(%q)",
-			CONFIG.DuckDB.TableName,
-			CONFIG.DuckDB.TableSource))
+	sql := fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM read_parquet(%q)",
+		CONFIG.DuckDB.LocationTable,
+		CONFIG.DuckDB.LocationSource)
+	_, err := r.RunSQL(sql)
 	if err != nil {
-		logrus.Error("Unexpected error at runtime: ", err)
-		return err
+		logrus.Errorf("PopulateDB failed: %v (sql=%s)", err, sql)
+	}
+	sql = fmt.Sprintf("CREATE TABLE %s AS SELECT * FROM read_parquet(%q)",
+		CONFIG.DuckDB.MockTable,
+		CONFIG.DuckDB.MockSource)
+	_, err = r.RunSQL(sql)
+	if err != nil {
+		logrus.Errorf("PopulateDB failed: %v (sql=%s)", err, sql)
 	}
 	return nil
 }
@@ -183,6 +192,24 @@ func (r *SQLRunner) GetSchema(table string) (*arrow.Schema, error) {
 
 	schema := out.Schema()
 	return schema, nil
+}
+
+func (r *SQLRunner) Get3DPlotSchema() (*arrow.Schema, error) {
+	fields := []arrow.Field{
+		{Name: "PlotObservationID", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "Biome", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "Longitude", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "Latitude", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "Species", Type: arrow.PrimitiveTypes.Int64},
+		{Name: "Relative_cover", Type: arrow.PrimitiveTypes.Int64},
+	}
+	md := arrow.NewMetadata(
+		[]string{"created_by", "description"},
+		[]string{"Go-Flight-Server", "Schema for 3D plot"},
+	)
+
+	out := arrow.NewSchema(fields, &md)
+	return out, nil
 }
 
 // Close

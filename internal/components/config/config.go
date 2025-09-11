@@ -12,11 +12,13 @@ type ServerConfig struct {
 }
 
 type DuckDBConfig struct {
-	Driver      string `yaml:"driver"`
-	Entrypoint  string `yaml:"entrypoint"`
-	Path        string `yaml:"path"`
-	TableSource string `yaml:"source"`
-	TableName   string `yaml:"name"`
+	Driver         string `yaml:"driver"`
+	Entrypoint     string `yaml:"entrypoint"`
+	Path           string `yaml:"path"`
+	MockSource     string `yaml:"mock_source"`
+	MockTable      string `yaml:"mock"`
+	LocationSource string `yaml:"location_source"`
+	LocationTable  string `yaml:"location"`
 }
 
 type Config struct {

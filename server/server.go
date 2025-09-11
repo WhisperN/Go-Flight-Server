@@ -32,21 +32,21 @@ type Server struct {
 	ctx         context.Context
 }
 
-func newFlightTicket() *flight2.Ticket {
+func newFlightTicket(path string) *flight2.Ticket {
 	return &flight2.Ticket{
-		Ticket: []byte(CONFIG.DuckDB.TableName),
+		Ticket: []byte(path),
 	}
 }
-func newFlightDescriptor() *flight2.FlightDescriptor {
+func newFlightDescriptor(path string) *flight2.FlightDescriptor {
 	return &flight2.FlightDescriptor{
-		Path: []string{CONFIG.DuckDB.TableName},
+		Path: []string{path},
 	}
 }
 
-func newFlightEndpoint() []*flight2.FlightEndpoint {
+func newFlightEndpoint(path string) []*flight2.FlightEndpoint {
 	out := []*flight2.FlightEndpoint{
 		{
-			Ticket: newFlightTicket(),
+			Ticket: newFlightTicket(path),
 		},
 	}
 	return out
@@ -55,24 +55,35 @@ func newFlightEndpoint() []*flight2.FlightEndpoint {
 func newActionType() []*flight2.ActionType {
 	supportedActions := []*flight2.ActionType{
 		{
-			Type:        "DoGet",
-			Description: "Get the current dataset",
+			Type:        "PING",
+			Description: "Health-check the server",
 		},
 	}
 	return supportedActions
 }
 
-func (s *Server) NewFlightInfo() *flight2.FlightInfo {
-	scm, err := s.GetSchema(s.ctx, newFlightDescriptor())
+func (s *Server) NewFlightInfo(path string) *flight2.FlightInfo {
+	scm, err := s.GetSchema(s.ctx, newFlightDescriptor(path))
 	if err != nil {
 		logrus.Fatal(err)
 	}
 	out := &flight2.FlightInfo{
 		Schema:           scm.Schema,
-		FlightDescriptor: newFlightDescriptor(),
-		Endpoint:         newFlightEndpoint(),
+		FlightDescriptor: newFlightDescriptor(path),
+		Endpoint:         newFlightEndpoint(path),
 	}
 	return out
+}
+
+func (s *Server) NewFlightInfos(paths []string) []*flight2.FlightInfo {
+	var infos []*flight2.FlightInfo
+	for _, path := range paths {
+		flight := s.NewFlightInfo(path)
+		if flight != nil {
+			infos = append(infos, flight)
+		}
+	}
+	return infos
 }
 
 // ------------------------------------------------------------------------------------------
@@ -83,8 +94,27 @@ func (s *Server) DoExchange(exchangeServer flight2.FlightService_DoExchangeServe
 }
 
 func (s *Server) DoAction(action *flight2.Action, actionServer flight2.FlightService_DoActionServer) error {
-	//TODO implement me
-	panic("implement me")
+	if action == nil {
+		logrus.Error("DoAction: action is nil")
+		return nil
+	}
+
+	logrus.Info("DoAction: called")
+
+	switch action.Type {
+	case "PING":
+		return actionServer.Send(&flight2.Result{Body: []byte("pong")})
+	default:
+		logrus.Errorf("unsupported action type: %s", action.Type)
+	}
+	/*
+		schema, err := s.db.Get3DPlotSchema()
+		data, err := s.db.RunSQL("SELECT PlotObservationID, Biome, Longitude, Latitude, Species, Relative_cover FROM 3474_76_sPlotOpen_header JOIN 3474_76_sPlotOpen_DT ON PlotObservationID")
+		if err != nil {
+			panic(err)
+		}
+		writer := flight2.NewRecordWriter(actionServer, ipc.WithSchema(schema))*/
+	return nil
 }
 
 func (s *Server) mustEmbedUnimplementedFlightServiceServer() {
@@ -164,10 +194,17 @@ func (s *Server) ListActions(empty *flight2.Empty, actionsServer flight2.FlightS
 func (s *Server) ListFlights(criteria *flight2.Criteria, fs flight2.FlightService_ListFlightsServer) error {
 	logrus.Info("ListFlights: called")
 
-	flightInfo := s.NewFlightInfo()
+	paths := []string{
+		CONFIG.DuckDB.MockTable,
+		CONFIG.DuckDB.LocationTable,
+	}
 
-	if err := fs.Send(flightInfo); err != nil {
-		logrus.Errorf("ListFlights: Failed to send flight info: %v", err)
+	flightInfos := s.NewFlightInfos(paths)
+
+	for _, info := range flightInfos {
+		if err := fs.Send(info); err != nil {
+			logrus.Errorf("ListFlights: Failed to send flight info: %v", err)
+		}
 	}
 	logrus.Info("ListFlights: End of function")
 	return nil
@@ -186,7 +223,8 @@ func (s *Server) ListFlights(criteria *flight2.Criteria, fs flight2.FlightServic
  * @return *flight2.FlightInfo
  */
 func (s *Server) GetFlightInfo(ctx context.Context, fd *flight2.FlightDescriptor) (*flight2.FlightInfo, error) {
-	flightInfo := s.NewFlightInfo()
+	// Doesn't make sense to get info on multiple paths right?
+	flightInfo := s.NewFlightInfo(fd.Path[0])
 
 	return flightInfo, nil
 }
@@ -228,31 +266,21 @@ func (s *Server) GetSchema(ctx context.Context, fd *flight2.FlightDescriptor) (*
  */
 func (s *Server) DoGet(ticket *flight2.Ticket, stream flight2.FlightService_DoGetServer) error {
 	if ticket == nil {
-		logrus.Error("ticket is nil")
+		logrus.Error("DoGet: ticket is nil")
 		return nil
 	}
 	logrus.Info("DoGet: called")
-	// Get the schema of our DB
-	schema, err := s.db.GetSchema(CONFIG.DuckDB.TableName)
-	// Get the data form DuckDB
-	data, err := s.db.RunSQL(fmt.Sprintf("SELECT * FROM %s", CONFIG.DuckDB.TableName))
-	if err != nil {
-		panic(err)
-	}
-	writer := flight2.NewRecordWriter(stream, ipc.WithSchema(schema))
-	defer func(writer *flight2.Writer) {
-		err := writer.Close()
-		if err != nil {
-			panic(err)
-		}
-	}(writer)
 
-	// Send back to client
-	for _, rec := range data {
-		if err := writer.Write(rec); err != nil {
-			panic(err)
-		}
+	switch string(ticket.Ticket) {
+	case CONFIG.DuckDB.MockTable:
+		doGetService(s, CONFIG.DuckDB.MockTable, stream)
+	case CONFIG.DuckDB.LocationTable:
+		doGetService(s, CONFIG.DuckDB.LocationTable, stream)
+	default:
+		logrus.Warnf("DoGet: unknown ticket: %s", string(ticket.Ticket))
+		return nil
 	}
+
 	logrus.Info("DoGet: End of function")
 	return nil
 }
@@ -303,3 +331,29 @@ func (s *Server) Shutdown() error {
 // TODO:
 // - CancelFlightInfoRequest
 // - Handshake
+
+// ------------------------------------------------------------------------------------------
+// Service functions
+func doGetService(s *Server, path string, stream flight2.FlightService_DoGetServer) {
+	// Get the schema of our DB
+	schema, err := s.db.GetSchema(path)
+	// Get the data form DuckDB
+	data, err := s.db.RunSQL(fmt.Sprintf("SELECT * FROM %s", path))
+	if err != nil {
+		panic(err)
+	}
+	writer := flight2.NewRecordWriter(stream, ipc.WithSchema(schema))
+	defer func(writer *flight2.Writer) {
+		err := writer.Close()
+		if err != nil {
+			panic(err)
+		}
+	}(writer)
+
+	// Send back to client
+	for _, rec := range data {
+		if err := writer.Write(rec); err != nil {
+			panic(err)
+		}
+	}
+}
